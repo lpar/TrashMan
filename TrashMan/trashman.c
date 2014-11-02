@@ -4,6 +4,8 @@
 //
 //  Copyright © 2014 mathew <meta@pobox.com>. All rights reserved.
 
+#define _XOPEN_SOURCE
+#define _BSD_SOURCE
 #include <stdio.h>
 #include <sys/xattr.h>
 #include <sys/stat.h>
@@ -16,11 +18,17 @@
 #include <sys/param.h>
 #include <limits.h>
 #include "debug.h"
+#include "trashman.h"
 
 #define PROGNAME "trashman"
 
 // The xattr name to use to store the timestamp when we first saw the file.
-#define ATTR_NAME "com.ath0.tm.date"
+// Linux requires a "user." prefix.
+#ifdef __linux__
+  #define ATTR_NAME "user.com.ath0.tm.date"
+#else
+  #define ATTR_NAME "com.ath0.tm.date"
+#endif
 // The format string to use for the timestamp
 #define ATTR_FORMAT "%Y-%m-%dT%H:%M:%SZ"
 // The size of a timestamp string, in bytes.
@@ -32,14 +40,14 @@
 // fspc is the file path.
 // ts is the timestamp, passed as a pointer to a buffer of at least ATTR_SIZE bytes.
 // now is the current time as an ISO-8601 UTC string.
-ssize_t getsettimestamp(const char *fspc, void *ts, const char *now) {
-  ssize_t bytes = getxattr(fspc, ATTR_NAME, ts, (size_t) ATTR_SIZE, 0, 0);
+ssize_t getsettimestamp(const char *fspc, void *ts, char *now) {
+  ssize_t bytes = p_lgetxattr(fspc, ATTR_NAME, ts, (size_t) ATTR_SIZE);
   if (bytes == -1) {
     debug("No xattr on %s", fspc);
 //    printf("No xattr on %s\n", fspc);
     // If it's a simple case of missing attribute, add it now.
     if (errno == ENOATTR) {
-      int rc = setxattr(fspc, ATTR_NAME, now, (size_t) ATTR_SIZE, 0, XATTR_NOFOLLOW);
+      int rc = p_lsetxattr(fspc, ATTR_NAME, now, (size_t) ATTR_SIZE);
       if (rc == -1) {
         fprintf(stderr, "%s: %s setting xattr\n", fspc, strerror(errno));
       }
@@ -56,14 +64,14 @@ ssize_t getsettimestamp(const char *fspc, void *ts, const char *now) {
 // If days <= 0, no deletion is performed.
 // Both nowstr and ttnow are the current date/time; once as a string, once as a time_t.
 // Returns 1 if some sort of error occurred, else 0.
-void processfile(const char *fspc, const char *nowstr, time_t ttnow, int days) {
+void processfile(const char *fspc, char *nowstr, time_t ttnow, int days) {
   double ddays = (double) days;
   char tsstr[ATTR_SIZE+1];
   if (getsettimestamp(fspc, tsstr, nowstr) > 0) {
     // The file had a timestamp
     debug("tsstr = %s, days = %d", tsstr, days);
     struct tm tm;
-    if (days > 0 && strptime(tsstr, ATTR_FORMAT, &tm) != NULL) {
+    if (days > 0 && strptime(tsstr, ATTR_FORMAT, &tm)) {
       time_t ttstamp = timegm(&tm);
       debug("ttstamp = %ld", ttstamp);
       double dt = difftime(ttnow, ttstamp) / 86400;
@@ -78,7 +86,7 @@ void processfile(const char *fspc, const char *nowstr, time_t ttnow, int days) {
   }
 }
 
-void processdir(const char *fspc, const char *nowstr, time_t ttnow, int days) {
+void processdir(const char *fspc, char *nowstr, time_t ttnow, int days) {
   DIR *dir;
   dir = opendir(fspc);
   if (dir == NULL) {
@@ -100,7 +108,7 @@ void processdir(const char *fspc, const char *nowstr, time_t ttnow, int days) {
 }
 
 // Process a path which might either be a file or a directory
-void processpath(const char *fspc, const char *nowstr, time_t ttnow, int days) {
+void processpath(const char *fspc, char *nowstr, time_t ttnow, int days) {
   struct stat s;
   // Use lstat because realpath has been used to process arguments from the command line and deal with
   // any symlinks, so any others we find should not be dereferenced
