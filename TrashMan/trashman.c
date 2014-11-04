@@ -32,7 +32,58 @@
 // The format string to use for the timestamp
 #define ATTR_FORMAT "%Y-%m-%dT%H:%M:%SZ"
 // The size of a timestamp string, in bytes.
-#define ATTR_SIZE 21 // e.g. 2014-04-28T13:28:00Z + '\0'
+#define ATTR_SIZE 21L // e.g. 2014-04-28T13:28:00Z + '\0'
+
+void rmrf(char*);
+
+// Recursively remove a directory and its contents.
+void rmdirrf(char *fspc) {
+  debug("rmdirrf %s", fspc);
+  DIR *dir;
+  dir = opendir(fspc);
+  if (dir == NULL) {
+    perror(fspc);
+    // but continue to process other arguments
+    return;
+  }
+  struct dirent *dirent;
+  char fpath[PATH_MAX];
+  while ((dirent = readdir(dir)) != NULL) {
+    char *file = dirent->d_name;
+    if (strncmp(file, "..", 3) != 0 && strncmp(file, ".", 2) != 0) {
+      snprintf(fpath, PATH_MAX, "%s/%s", fspc, file);
+      debug("fpath = %s", fpath);
+      rmrf(fpath);
+    }
+  }
+  closedir(dir);
+  debug("rmdir %s", fspc);
+  rmdir(fspc);
+}
+
+// Recursively remove something which might be a file or a directory, we don't know yet.
+void rmrf(char *fspc) {
+  debug("rmrf %s", fspc);
+  struct stat s;
+  // Use lstat so we don't wander elsewhere into the filesystem and delete things.
+  if (lstat(fspc, &s) != 0) {
+    perror(fspc);
+    // but continue to process other arguments
+    return;
+  }
+  if (S_ISDIR(s.st_mode)) {
+    debug("%s is a directory", fspc);
+    // Strip any trailing / with dirname
+    rmdirrf(fspc);
+  } else if (S_ISREG(s.st_mode) || S_ISLNK(s.st_mode)) {
+    debug("%s is a file or symlink", fspc);
+    if (!unlink(fspc)) {
+      perror(fspc);
+    }
+  } else {
+    printf("%s: ignored - not directory, symlink or file", fspc);
+  }
+}
 
 // Gets and/or sets the timestamp on a given file.
 // If the file has no timestamp, it's set to now and -1 is returned.
@@ -41,13 +92,12 @@
 // ts is the timestamp, passed as a pointer to a buffer of at least ATTR_SIZE bytes.
 // now is the current time as an ISO-8601 UTC string.
 ssize_t getsettimestamp(const char *fspc, void *ts, char *now) {
-  ssize_t bytes = p_lgetxattr(fspc, ATTR_NAME, ts, (size_t) ATTR_SIZE);
+  ssize_t bytes = p_lgetxattr(fspc, ATTR_NAME, ts, ATTR_SIZE);
   if (bytes == -1) {
     debug("No xattr on %s", fspc);
-//    printf("No xattr on %s\n", fspc);
     // If it's a simple case of missing attribute, add it now.
     if (errno == ENOATTR) {
-      int rc = p_lsetxattr(fspc, ATTR_NAME, now, (size_t) ATTR_SIZE);
+      ssize_t rc = p_lsetxattr(fspc, ATTR_NAME, now, ATTR_SIZE);
       if (rc == -1) {
         fprintf(stderr, "%s: %s setting xattr\n", fspc, strerror(errno));
       }
@@ -64,7 +114,7 @@ ssize_t getsettimestamp(const char *fspc, void *ts, char *now) {
 // If days <= 0, no deletion is performed.
 // Both nowstr and ttnow are the current date/time; once as a string, once as a time_t.
 // Returns 1 if some sort of error occurred, else 0.
-void processfile(const char *fspc, char *nowstr, time_t ttnow, int days) {
+void processfile(char *fspc, char *nowstr, time_t ttnow, int days) {
   double ddays = (double) days;
   char tsstr[ATTR_SIZE+1];
   if (getsettimestamp(fspc, tsstr, nowstr) > 0) {
@@ -77,8 +127,8 @@ void processfile(const char *fspc, char *nowstr, time_t ttnow, int days) {
       double dt = difftime(ttnow, ttstamp) / 86400;
       debug("dt = %lf\n", dt);
       if (dt >= ddays) {
-        unlink(fspc);
-        debug("delete %s, %lf days old", fspc, dt);
+        debug("deleted %s, %lf days old", fspc, dt);
+        rmrf(fspc);
       } else {
         debug("do not delete %s, %lf days old", fspc, dt);
       }
@@ -86,7 +136,8 @@ void processfile(const char *fspc, char *nowstr, time_t ttnow, int days) {
   }
 }
 
-void processdir(const char *fspc, char *nowstr, time_t ttnow, int days) {
+// Process a path which we know to be a directory
+void processdir(char *fspc, char *nowstr, time_t ttnow, int days) {
   DIR *dir;
   dir = opendir(fspc);
   if (dir == NULL) {
@@ -108,7 +159,7 @@ void processdir(const char *fspc, char *nowstr, time_t ttnow, int days) {
 }
 
 // Process a path which might either be a file or a directory
-void processpath(const char *fspc, char *nowstr, time_t ttnow, int days) {
+void processpath(char *fspc, char *nowstr, time_t ttnow, int days) {
   struct stat s;
   // Use lstat because realpath has been used to process arguments from the command line and deal with
   // any symlinks, so any others we find should not be dereferenced

@@ -1,0 +1,74 @@
+.\" generated with Ronn/v0.7.3
+.\" http://github.com/rtomayko/ronn/tree/0.7.3
+.
+.TH "TRASHMAN" "1" "November 2014" "" ""
+.
+.SH "NAME"
+\fBtrashman\fR \- clean up temporary files in user directories
+.
+.SH "SYNOPSIS"
+\fBtrashman\fR \fIfile\fR\.\.\.
+.
+.br
+\fBtrashman\fR \fB\-d\fR \fIdays\fR \fIfile\fR\.\.\.
+.
+.br
+.
+.SH "DESCRIPTION"
+\fBTrashman\fR is a small utility to automatically clean up temporary directories, such as web browser download directories\.
+.
+.P
+Although \fBfind(1)\fR and \fBtmpwatch(1)\fR can pick out files by creation, access or modification time, they don\'t work well for download directories\. Files which are freshly downloaded may have creation and modification dates far in the past, and file access times can get updated by browsing the files without opening any of them\.
+.
+.P
+So, \fBtrashman\fR instead records when it first sees a file, using an extended attribute (xattr)\. The intent is to put \fBtrashman\fR in a \fBcrontab\fR so that it runs on your download directory periodically\.
+.
+.P
+If you specify a number of days with the \fB\-d\fR option, \fBtrashman\fR will additionally remove all files which it first saw more than that many days ago\.
+.
+.SH "DIRECTORIES"
+Command line arguments will usually be directories, but files should also work\.
+.
+.P
+All specified directories are resolved and normalized before processing begins, following symlinks\. Once processing starts, symlinks are treated like ordinary files and not followed\.
+.
+.P
+This means that you can run \fBtrashman\fR on a directory which is actually a symlink, and it will process the contents of the directory rather than the link\. However, if any of the contents of the directory are also symlinks, the links will be timestamped and deleted\. This is to avoid following a symlink to an unexpected part of the filesystem and causing mayhem\.
+.
+.P
+This also means that timestamping only occurs at the top level of the specified directories\.
+.
+.SH "OPTIONS"
+With no options, \fBtrashman\fR simply flags files it hasn\'t seen before with the current date and time\.
+.
+.TP
+\fB\-d\fR \fIdays\fR
+Delete files seen longer ago than the specified number of days\. Directories are recursively deleted\.
+.
+.SH "EXAMPLES"
+In a \fBcrontab (5)\fR file:
+.
+.IP "" 4
+.
+.nf
+
+0 1 * * * /usr/local/bin/trashman \-d 14 ~/Downloads ~/Temporary
+.
+.fi
+.
+.IP "" 0
+.
+.P
+At 01:00 each day, run \fBtrashman\fR over the user\'s Downloads and Temporary directories\. Delete anything first seen more than 14 days ago\.
+.
+.SH "BUGS"
+If you move a file out of a folder which \fBtrashman\fR has processed, the extended attribute containing the timestamp will be preserved\. If you then move the file back into the folder again, the original timestamp will remain in effect, and the file might get deleted sooner than you expect\.
+.
+.P
+Since \fBtrashman\fR requires extended attribute support, it may not work on all Linux distributions\.
+.
+.SH "COPYRIGHT"
+Trashman is copyright © 2014 mathew \fImeta@pobox\.com\fR\. It is released under the terms of the GNU Public License, version 3\.0 or later\.
+.
+.SH "SEE ALSO"
+find(1), tmpwatch(1), xattr(1), tmpreaper(1)
