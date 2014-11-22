@@ -97,6 +97,7 @@ ssize_t getsettimestamp(const char *fspc, void *ts, char *now) {
     debug("No xattr on %s", fspc);
     // If it's a simple case of missing attribute, add it now.
     if (errno == ENOATTR) {
+      debug("Setting xattr on %s", fspc);
       ssize_t rc = p_lsetxattr(fspc, ATTR_NAME, now, ATTR_SIZE);
       if (rc == -1) {
         fprintf(stderr, "%s: %s setting xattr\n", fspc, strerror(errno));
